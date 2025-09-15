@@ -1,7 +1,7 @@
 {
   "type": "music",
   "domain": "bbc_stations_uk",
-  "name": "Demo Music Provider",
+  "name": "BBC UK radio stations",
   "description": "Music Provider for BBC Radio Stations.",
   "codeowners": ["@mrkarlos"],
   "requirements": [],

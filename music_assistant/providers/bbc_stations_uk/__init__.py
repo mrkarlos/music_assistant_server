@@ -4,36 +4,13 @@ DEMO/TEMPLATE Music Provider for Music Assistant.
 This is an empty music provider with no actual implementation.
 Its meant to get started developing a new music provider for Music Assistant.
 
-Use it as a reference to discover what methods exists and what they should return.
-Also it is good to look at existing music providers to get a better understanding,
-due to the fact that providers may be flexible and support different features.
-
-If you are relying on a third-party library to interact with the music source,
-you can then reference your library in the manifest in the requirements section,
-which is a list of (versioned!) python modules (pip syntax) that should be installed
-when the provider is selected by the user.
-
-Please keep in mind that Music Assistant is a fully async application and all
-methods should be implemented as async methods. If you are not familiar with
-async programming in Python, we recommend you to read up on it first.
-If you are using a third-party library that is not async, you can need to use the several
-helper methods such as asyncio.to_thread or the create_task in the mass object to wrap
-the calls to the library in a thread.
-
-To add a new provider to Music Assistant, you need to create a new folder
-in the providers folder with the name of your provider (e.g. 'my_music_provider').
-In that folder you should create (at least) a __init__.py file and a manifest.json file.
-
-Optional is an icon.svg file that will be used as the icon for the provider in the UI,
-but we also support that you specify a material design icon in the manifest.json file.
-
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, cast
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
@@ -60,6 +37,9 @@ from music_assistant_models.streamdetails import StreamDetails
 
 from music_assistant.models.music_provider import MusicProvider
 
+from .discovery import merge_discovered_stations, scrape_bbc_sounds_stations
+from .stations import STATIONS
+
 SUPPORTED_FEATURES = {
     ProviderFeature.SEARCH,
     ProviderFeature.BROWSE,
@@ -72,6 +52,21 @@ SUPPORTED_FEATURES = {
 
 CONF_STORED_RADIOS = "stored_uk_bbc_radios"
 
+BBC_STATIONS_URL = "https://www.bbc.co.uk/sounds/stations"
+
+ROOT_NATIONAL = "bbc:national"
+ROOT_LOCAL = "bbc:local"
+
+# Known exceptions where .isml != slug + ".isml"
+ISML_EXCEPTIONS = {
+    "bbc_radio_four": "bbc_radio_fourfm.isml",  # Radio 4 main feed
+    "bbc_radio_5live": "bbc_radio_five_live.isml",  # five_live spelling
+}
+
+A_FILES_TPL = (
+    "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/"
+    "audio/simulcast/hls/{region}/pc_hd_abr_v2/aks/{slug}.m3u8"  # codespell:ignore aks
+)
 
 # --- Config ------------------------------------------------------------------
 
@@ -86,65 +81,30 @@ STATION_ICONS_BASE_URL = (
     "https://raw.githubusercontent.com/music-assistant/music-assistant.io/main/docs/assets/icons"
 )
 
-# Stations: (human name, a.files slug, .isml filename, icon filename)
-STATIONS: dict[str, dict[str, str]] = {
-    "bbc_radio_1": {
-        "name": "BBC Radio 1",
-        "slug": "bbc_radio_one",
-        "isml": "bbc_radio_one.isml",
-        "icon": "bbc1.png",
-    },
-    "bbc_radio_2": {
-        "name": "BBC Radio 2",
-        "slug": "bbc_radio_two",
-        "isml": "bbc_radio_two.isml",
-        "icon": "bbc2.png",
-    },
-    "bbc_radio_3": {
-        "name": "BBC Radio 3",
-        "slug": "bbc_radio_three",
-        "isml": "bbc_radio_three.isml",
-        "icon": "bbc3.png",
-    },
-    "bbc_radio_4": {
-        "name": "BBC Radio 4 (FM)",
-        "slug": "bbc_radio_fourfm",
-        "isml": "bbc_radio_fourfm.isml",
-        "icon": "bbc4.png",
-    },
-    "bbc_radio_5live": {
-        "name": "BBC Radio 5 Live",
-        "slug": "bbc_radio_five_live",
-        "isml": "bbc_radio_five_live.isml",
-        "icon": "bbc5.png",
-    },
-    "bbc_6music": {
-        "name": "BBC Radio 6 Music",
-        "slug": "bbc_6music",
-        "isml": "bbc_6music.isml",
-        "icon": "bbc6.png",
-    },
-}
-
-A_FILES_TPL = (
-    "http://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/{slug}.m3u8"
-)
 
 if TYPE_CHECKING:
     from music_assistant_models.provider import ProviderManifest
 
     from music_assistant.mass import MusicAssistant
-    from music_assistant.models import ProviderInstanceType
+
+
+# provider/__init__.py (or your module file that defines setup)
 
 
 async def setup(
-    mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
-) -> ProviderInstanceType:
+    mass: MusicAssistant,
+    manifest: ProviderManifest,
+    config: ProviderConfig,
+) -> UkBbcRadioStationsProvider:
     """Initialize provider(instance) with given configuration."""
-    # setup is called when the user wants to setup a new provider instance.
-    # you are free to do any preflight checks here and but you must return
-    #  an instance of the provider.
-    return UkBbcRadioStationsProvider(mass, manifest, config)
+    prov = UkBbcRadioStationsProvider(mass, manifest, config)
+
+    try:
+        discovered = await scrape_bbc_sounds_stations(mass.http_session)
+        merge_discovered_stations(discovered, STATIONS)
+    except Exception as err:
+        prov.logger.warning("BBC station discovery failed at setup: %s", err)
+    return prov
 
 
 async def get_config_entries(
@@ -244,23 +204,29 @@ class UkBbcRadioStationsProvider(MusicProvider):
         # For streaming providers return True here but for local file based providers return False.
         return True
 
-    async def search(  # type: ignore[empty-body]
+    async def search(
         self,
         search_query: str,
-        media_types: list[MediaType],
-        limit: int = 5,
+        media_types: list[MediaType],  # must be a list, not set|None
+        limit: int = 25,
     ) -> SearchResults:
-        """Perform search on musicprovider.
+        """Search stations by name/id/slug (radios only)."""
+        # Defensive: treat empty list as radios
+        types = media_types or [MediaType.RADIO]
 
-        :param search_query: Search query.
-        :param media_types: A list of media_types to include.
-        :param limit: Number of items to return in the search (per type).
-        """
-        # OPTIONAL
-        # Will only be called if you reported the SEARCH feature in the supported_features.
-        # It allows searching your provider for media items.
-        # See the model for SearchResults for more information on what to return, but
-        # in general you should return a list of MediaItems for each media type.
+        results = SearchResults()
+        if MediaType.RADIO in types:
+            q = (search_query or "").strip().lower()
+            radios: list[Radio] = []
+            for pid, meta in STATIONS.items():
+                name = (meta.get("name") or "").lower()
+                slug = (meta.get("slug") or "").lower()
+                if not q or q in name or q in pid.lower() or q in slug:
+                    radios.append(self._parse_radio(pid))
+                    if len(radios) >= limit:
+                        break
+            results.radio = radios
+        return results
 
     # --- Library / Browse ----------------------------------------------------
 
@@ -275,9 +241,45 @@ class UkBbcRadioStationsProvider(MusicProvider):
             raise MediaNotFoundError("Station not found")
         return self._parse_radio(prov_radio_id)
 
-    async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping | BrowseFolder]:
-        """Browse and return the list of available BBC Radio stations."""
-        return [self._parse_radio(prov_id) for prov_id in STATIONS]
+    async def browse(self, path: str) -> list[MediaItemType | ItemMapping | BrowseFolder]:
+        """Two-level browser: root → (national|local) → station items."""
+        scheme = self.instance_id or self.domain or "bbc_stations_uk"
+        prefix = f"{scheme}://"
+
+        def canon(p: str | None) -> str:
+            """Normalize a browse path: strip provider prefix + slashes."""
+            s = (p or "").strip()
+            # strip leading repeats of "<scheme>://"
+            while s.startswith(prefix):
+                s = s[len(prefix) :]
+            # normalize slashes
+            return s.lstrip("/").removesuffix("/")
+
+        cp = canon(path)
+
+        # Root: empty, "root", or provider prefix
+        if cp in ("", "root"):
+            return [
+                BrowseFolder(item_id="national", provider=self.lookup_key, name="BBC — National"),
+                BrowseFolder(item_id="local", provider=self.lookup_key, name="BBC — Local"),
+            ]
+
+        if cp == "national":
+            prov_ids = sorted(
+                pid for pid, meta in STATIONS.items() if meta.get("group") == "national"
+            )
+            return [self._parse_radio(pid) for pid in prov_ids]
+
+        if cp == "local":
+            prov_ids = sorted(pid for pid, meta in STATIONS.items() if meta.get("group") == "local")
+            return [self._parse_radio(pid) for pid in prov_ids]
+
+        # Direct station id (e.g. when MA passes a concrete item_id)
+        if cp in STATIONS:
+            return [self._parse_radio(cp)]
+
+        # Fallback: everything
+        return [self._parse_radio(pid) for pid in sorted(STATIONS)]
 
     # -- Library Add/Remove functions
 
@@ -344,6 +346,12 @@ class UkBbcRadioStationsProvider(MusicProvider):
 
     # --- Helpers -------------------------------------------------------------
 
+    def _root_uri(self) -> str:
+        """Return the root URI for this provider (e.g. 'bbc_stations_uk://')."""
+        # prefer instance_id (unique per install); fallback to domain
+        scheme = self.instance_id or self.domain or "bbc_stations_uk"
+        return f"{scheme}://"
+
     def _parse_radio(self, prov_id: str) -> Radio:
         st = STATIONS[prov_id]
         radio = Radio(
@@ -372,31 +380,53 @@ class UkBbcRadioStationsProvider(MusicProvider):
             )
         return radio
 
-    async def _discover_variant_url(self, slug: str) -> str:
-        """Fetch the BBC 'a.files' manifest and return any variant .m3u8 URL for this slug.
+    async def _discover_variant_url(self, slug: str, region: str = BBC_REGION) -> str:
+        """Resolve BBC entry manifest to the Akamai .isml playlist for a station.
 
-        We use the provider's shared aiohttp session.
+        Args:
+            slug: Station slug (e.g. "bbc_radio_one").
+            region: BBC region code ("uk" or "ww").
+
+        Returns:
+            Final playlist URL containing `.isml` in its path.
+
+        Raises:
+            UnplayableMediaError: If the expected child playlist or .isml URL
+                cannot be resolved.
         """
-        manifest_url = A_FILES_TPL.format(slug=slug)
+        entry = A_FILES_TPL.format(region=region, slug=slug)
         timeout = aiohttp.ClientTimeout(total=10)
 
-        async with self.mass.http_session.get(
-            manifest_url, timeout=timeout, allow_redirects=True
-        ) as r:
+        # Fetch the entry manifest
+        async with self.mass.http_session.get(entry, timeout=timeout, allow_redirects=True) as r:
             r.raise_for_status()
-            _ = await r.text()
-            # If the final URL itself already points into Akamai with the station path, use it.
-            if r.url and slug in str(r.url):
-                return str(r.url)
+            body = await r.text()
 
-        # Fallback: fetch again and parse body lines (kept separate to avoid reusing closed r)
-        async with self.mass.http_session.get(manifest_url, timeout=timeout) as r2:
+        # Extract first child m3u8 from manifest body
+        child = next(
+            (
+                line
+                for line in (ln.strip() for ln in body.splitlines())
+                if line and not line.startswith("#") and line.endswith(".m3u8")
+            ),
+            None,
+        )
+        if child is None:
+            raise UnplayableMediaError(f"No child playlist found in {entry}")
+
+        if not child.startswith("http"):
+            child = urljoin(entry, child)
+
+        # Follow redirects on the child URL
+        async with self.mass.http_session.get(child, timeout=timeout, allow_redirects=True) as r2:
             r2.raise_for_status()
-            body = await r2.text()
-            for line in (ln.strip() for ln in body.splitlines()):
-                if line and not line.startswith("#") and line.endswith(".m3u8") and slug in line:
-                    return line
-        raise UnplayableMediaError(f"Could not locate a variant URL for {slug}")
+            final_url = str(r2.url)
+
+        # Guard: ensure final URL contains `.isml`
+        if ".isml" not in final_url:
+            raise UnplayableMediaError(f"Resolved URL did not contain .isml: {final_url}")
+
+        return final_url
 
     def _to_static_url(self, any_m3u8_url: str, isml: str, bitrate: int) -> str:
         """Trim to the .isml directory and append a non-rewind variant at the chosen bitrate."""
