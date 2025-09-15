@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "lint (ruff)", "type": "shell", "command": "ruff check ." },
+    { "label": "lint+fix (ruff)", "type": "shell", "command": "ruff check . --fix" },
+    { "label": "pre-commit (all hooks)", "type": "shell", "command": "pre-commit run -a" }
+  ]
+}

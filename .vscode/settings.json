@@ -7,6 +7,10 @@
     }
   },
   "editor.defaultFormatter": "charliermarsh.ruff",
+
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
   "[github-actions-workflow]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
