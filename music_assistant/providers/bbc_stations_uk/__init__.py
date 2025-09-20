@@ -9,6 +9,7 @@ Its meant to get started developing a new music provider for Music Assistant.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urljoin, urlparse
 
@@ -352,6 +353,33 @@ class UkBbcRadioStationsProvider(MusicProvider):
         scheme = self.instance_id or self.domain or "bbc_stations_uk"
         return f"{scheme}://"
 
+    async def resolve_image(self, path: str) -> str | bytes:
+        """
+        Resolve an image reference for this provider.
+
+        Args:
+            path: Input path or URL. May be a full URL, a local provider-prefixed path
+                like "/providers/<domain>/icons/foo.png", or a plain "icons/foo.png".
+
+        Returns:
+            Either raw bytes (for local icon files) or the original string (for remote URLs).
+
+        Notes:
+            - Strips the "/providers/<domain>/" prefix if present.
+            - Looks in the provider's local "icons/" folder for matching files.
+            - If found, returns the file contents as bytes so MA can serve it.
+            - Otherwise, the path is returned unchanged (e.g. http/https URL).
+        """
+        # normalize any stray /providers/<domain>/ prefix back to local path
+        prefix = f"/providers/{self.domain}/"
+        path = path.removeprefix(prefix)  # -> "icons/fivelive.png"
+
+        if path.startswith("icons/"):
+            local_path = Path(__file__).parent / path
+            if local_path.exists():
+                return local_path.read_bytes()
+        return path  # pass through http(s) URLs unchanged
+
     def _parse_radio(self, prov_id: str) -> Radio:
         st = STATIONS[prov_id]
         radio = Radio(
@@ -374,8 +402,8 @@ class UkBbcRadioStationsProvider(MusicProvider):
                 MediaItemImage(
                     provider=self.lookup_key,
                     type=ImageType.THUMB,
-                    path=f"/providers/{self.domain}/{icon_file}",  # full URL path
-                    remotely_accessible=True,
+                    path=f"icons/{st['icon']}",
+                    remotely_accessible=False,  # important: triggers resolve_image()
                 )
             )
         return radio

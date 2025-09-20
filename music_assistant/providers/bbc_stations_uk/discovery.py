@@ -14,8 +14,6 @@ from typing import Any
 
 import aiohttp
 
-from .stations import StationEntry
-
 BBC_STATIONS_URL = "https://www.bbc.co.uk/sounds/stations"
 
 # Exceptions where `.isml` is not simply f"{slug}.isml".
@@ -163,7 +161,7 @@ async def scrape_bbc_sounds_stations(
 
 def merge_discovered_stations(
     discovered: dict[str, dict[str, dict[str, Any]]],
-    stations: dict[str, StationEntry],
+    stations: dict[str, dict[str, Any]],
 ) -> None:
     """Merge discovered station metadata into an existing mapping in-place.
 

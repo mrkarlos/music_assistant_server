@@ -5,6 +5,5 @@
   "description": "Music Provider for BBC Radio Stations.",
   "codeowners": ["@mrkarlos"],
   "requirements": [],
-  "resources": ["icons"],
   "documentation": "https://music-assistant.io/music-providers/demo/"
 }
