@@ -368,13 +368,13 @@ class UkBbcRadioStationsProvider(MusicProvider):
             },
         )
         # Optional icon (replace with your own assets as needed)
-        icon = st.get("icon")
-        if icon:
+        icon_file = st.get("icon")
+        if icon_file:
             radio.metadata.add_image(
                 MediaItemImage(
                     provider=self.lookup_key,
                     type=ImageType.THUMB,
-                    path=f"{STATION_ICONS_BASE_URL}/{icon}",
+                    path=f"/providers/{self.domain}/{icon_file}",  # full URL path
                     remotely_accessible=True,
                 )
             )

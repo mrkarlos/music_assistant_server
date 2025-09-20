@@ -21,47 +21,62 @@ class StationEntry(TypedDict, total=False):
 
 # Minimal seed list for nationals (you can add more if you want).
 # Dynamic discovery will merge/augment this at startup.
-STATIONS: dict[str, StationEntry] = {
+STATIONS: dict[str, dict[str, str]] = {
     "bbc_radio_1": {
         "name": "BBC Radio 1",
         "slug": "bbc_radio_one",
         "isml": "bbc_radio_one.isml",
-        "icon": "bbc1.png",
         "group": "national",
+        "icon": "icons/radio1.png",
     },
     "bbc_radio_2": {
         "name": "BBC Radio 2",
         "slug": "bbc_radio_two",
         "isml": "bbc_radio_two.isml",
-        "icon": "bbc2.png",
         "group": "national",
+        "icon": "icons/radio2.png",
     },
     "bbc_radio_3": {
         "name": "BBC Radio 3",
         "slug": "bbc_radio_three",
         "isml": "bbc_radio_three.isml",
-        "icon": "bbc3.png",
         "group": "national",
+        "icon": "icons/radio3.png",
     },
     "bbc_radio_4": {
-        "name": "BBC Radio 4 (FM)",
+        "name": "BBC Radio 4",
         "slug": "bbc_radio_four",
-        "isml": "bbc_radio_fourfm.isml",
-        "icon": "bbc4.png",
+        "isml": "bbc_radio_fourfm.isml",  # exception: "fourfm"
         "group": "national",
+        "icon": "icons/radio4.png",
+    },
+    "bbc_radio_4extra": {
+        "name": "BBC Radio 4 Extra",
+        "slug": "bbc_radio_four_extra",
+        "isml": "bbc_radio_four_extra.isml",
+        "group": "national",
+        "icon": "icons/radio4extra.png",
     },
     "bbc_radio_5live": {
         "name": "BBC Radio 5 Live",
-        "slug": "bbc_radio_5live",
+        "slug": "bbc_radio_five_live",
         "isml": "bbc_radio_five_live.isml",
-        "icon": "bbc5.png",
         "group": "national",
+        "icon": "icons/fivelive.png",
     },
     "bbc_6music": {
-        "name": "BBC Radio 6 Music",
+        "name": "BBC 6 Music",
         "slug": "bbc_6music",
         "isml": "bbc_6music.isml",
-        "icon": "bbc6.png",
         "group": "national",
+        "icon": "icons/6music.png",
+    },
+    "bbc_world_service": {
+        "name": "BBC World Service",
+        "slug": "bbc_world_service",
+        "isml": "bbc_world_service.isml",
+        "group": "national",
+        "icon": "icons/worldservice.png",
     },
 }
+
