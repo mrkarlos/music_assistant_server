@@ -162,6 +162,7 @@ async def scrape_bbc_sounds_stations(
 def merge_discovered_stations(
     discovered: dict[str, dict[str, dict[str, Any]]],
     stations: dict[str, dict[str, Any]],
+    logger: Any,
 ) -> None:
     """Merge discovered station metadata into an existing mapping in-place.
 
@@ -179,6 +180,8 @@ def merge_discovered_stations(
             isml = meta["isml"]
 
             if provider_id not in stations:
+                logger.debug(f"Adding radio {name} {slug} to stored radios")
+
                 stations[provider_id] = {
                     "name": name,
                     "slug": slug,

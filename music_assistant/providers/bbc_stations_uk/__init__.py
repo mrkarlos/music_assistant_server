@@ -102,7 +102,7 @@ async def setup(
 
     try:
         discovered = await scrape_bbc_sounds_stations(mass.http_session)
-        merge_discovered_stations(discovered, STATIONS)
+        merge_discovered_stations(discovered, STATIONS, prov.logger)
     except Exception as err:
         prov.logger.warning("BBC station discovery failed at setup: %s", err)
     return prov
@@ -232,9 +232,13 @@ class UkBbcRadioStationsProvider(MusicProvider):
     # --- Library / Browse ----------------------------------------------------
 
     async def get_library_radios(self) -> AsyncGenerator[Radio, None]:
-        """Yield all available BBC Radio stations from the provider."""
-        for prov_id in STATIONS:
-            yield self._parse_radio(prov_id)
+        """Yield only the user's stored (favorited) BBC stations."""
+        stored_ids = cast("list[str]", self.config.get_value(CONF_STORED_RADIOS) or [])
+        for prov_id in stored_ids:
+            if prov_id in STATIONS:
+                yield self._parse_radio(prov_id)
+            else:
+                self.logger.debug("Stored radio %s no longer exists; skipping", prov_id)
 
     async def get_radio(self, prov_radio_id: str) -> Radio:
         """Return details for a single BBC Radio station by its provider id."""
