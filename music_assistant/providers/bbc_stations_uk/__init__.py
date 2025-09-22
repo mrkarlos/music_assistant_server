@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 import aiohttp
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
@@ -39,7 +39,7 @@ from music_assistant_models.streamdetails import StreamDetails
 from music_assistant.models.music_provider import MusicProvider
 
 from .discovery import merge_discovered_stations, scrape_bbc_sounds_stations
-from .stations import STATIONS
+from .stations import STATIONS, rebuild_slug_index
 
 SUPPORTED_FEATURES = {
     ProviderFeature.SEARCH,
@@ -103,6 +103,7 @@ async def setup(
     try:
         discovered = await scrape_bbc_sounds_stations(mass.http_session)
         merge_discovered_stations(discovered, STATIONS, prov.logger)
+        rebuild_slug_index()
     except Exception as err:
         prov.logger.warning("BBC station discovery failed at setup: %s", err)
     return prov
@@ -244,6 +245,7 @@ class UkBbcRadioStationsProvider(MusicProvider):
         """Return details for a single BBC Radio station by its provider id."""
         if prov_radio_id not in STATIONS:
             raise MediaNotFoundError("Station not found")
+
         return self._parse_radio(prov_radio_id)
 
     async def browse(self, path: str) -> list[MediaItemType | ItemMapping | BrowseFolder]:
@@ -357,6 +359,27 @@ class UkBbcRadioStationsProvider(MusicProvider):
         scheme = self.instance_id or self.domain or "bbc_stations_uk"
         return f"{scheme}://"
 
+    def _avatar_url(
+        self,
+        name: str,
+        *,
+        size: int = 256,
+        bg: str = "a0a0a0",
+        fg: str = "cccccc",
+        rounded: bool = True,
+        bold: bool = True,
+    ) -> str:
+        """Build a ui-avatars.com URL for a station name."""
+        qname = quote_plus(name)
+        return (
+            f"https://ui-avatars.com/api/?name={qname}"
+            f"&size={size}"
+            f"&background={bg}"
+            f"&color={fg}"
+            f"&rounded={'true' if rounded else 'false'}"
+            f"&bold={'true' if bold else 'false'}"
+        )
+
     async def resolve_image(self, path: str) -> str | bytes:
         """
         Resolve an image reference for this provider.
@@ -382,6 +405,7 @@ class UkBbcRadioStationsProvider(MusicProvider):
             local_path = Path(__file__).parent / path
             if local_path.exists():
                 return local_path.read_bytes()
+
         return path  # pass through http(s) URLs unchanged
 
     def _parse_radio(self, prov_id: str) -> Radio:
@@ -401,15 +425,38 @@ class UkBbcRadioStationsProvider(MusicProvider):
         )
         # Optional icon (replace with your own assets as needed)
         icon_file = st.get("icon")
+
+        self.logger.debug(f"Icon for station {prov_id}: {icon_file}")
+
         if icon_file:
+            # packaged icon → served via resolve_image
             radio.metadata.add_image(
                 MediaItemImage(
                     provider=self.lookup_key,
                     type=ImageType.THUMB,
-                    path=f"icons/{st['icon']}",
-                    remotely_accessible=False,  # important: triggers resolve_image()
+                    path=f"icons/{icon_file}",
+                    remotely_accessible=False,  # triggers resolve_image()
                 )
             )
+        else:
+            # fallback to ui-avatars
+            radio.metadata.add_image(
+                MediaItemImage(
+                    provider=self.lookup_key,
+                    type=ImageType.THUMB,
+                    path=self._avatar_url(
+                        st["name"],
+                        size=320,
+                        # bg="ff6600",
+                        bg="random",
+                        fg="0f0f0f",
+                        rounded=True,
+                        bold=True,
+                    ),
+                    remotely_accessible=True,
+                )
+            )
+
         return radio
 
     async def _discover_variant_url(self, slug: str, region: str = BBC_REGION) -> str:

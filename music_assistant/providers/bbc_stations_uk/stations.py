@@ -27,7 +27,7 @@ STATIONS: dict[str, dict[str, str]] = {
         "slug": "bbc_radio_one",
         "isml": "bbc_radio_one.isml",
         "group": "national",
-        "icon": "radio1.png",
+        "icon": "radio_1.png",
     },
     "bbc_radio_one_anthems": {
         "name": "BBC Radio 1 Anthems",
@@ -45,17 +45,17 @@ STATIONS: dict[str, dict[str, str]] = {
     },
     "bbc_1xtra": {
         "name": "BBC Radio 1Xtra",
-        "slug": "bbc_radio_one",
-        "isml": "bbc_radio_one.isml",
+        "slug": "bbc_1xtra",
+        "isml": "bbc_1xtra.isml",
         "group": "national",
-        "icon": "radio1.png",
+        "icon": "radio_1_xtra.png",
     },
     "bbc_radio_2": {
         "name": "BBC Radio 2",
         "slug": "bbc_radio_two",
         "isml": "bbc_radio_two.isml",
         "group": "national",
-        "icon": "radio2.png",
+        "icon": "radio_2.png",
     },
     "bbc_radio_3": {
         "name": "BBC Radio 3",
@@ -73,7 +73,7 @@ STATIONS: dict[str, dict[str, str]] = {
     },
     "bbc_radio_fourfm": {
         "name": "BBC Radio 4",
-        "slug": "bbc_radio_four",
+        "slug": "bbc_radio_fourfm",
         "isml": "bbc_radio_fourfm.isml",  # exception: "fourfm"
         "group": "national",
         "icon": "radio4.png",
@@ -113,12 +113,12 @@ STATIONS: dict[str, dict[str, str]] = {
         "group": "national",
         "icon": "radio5_live_sports_extra_3.png",
     },
-    "bbc_6music": {
-        "name": "BBC 6 Music",
+    "bbc_radio_6_music": {
+        "name": "BBC Radio 6 Music",
         "slug": "bbc_6music",
         "isml": "bbc_6music.isml",
         "group": "national",
-        "icon": "radio_6_music.png",
+        "icon": "radio6_music.png",
     },
     "bbc_world_service": {
         "name": "BBC World Service",
@@ -233,3 +233,17 @@ STATIONS: dict[str, dict[str, str]] = {
         "icon": "",
     },
 }
+
+# Build a reverse index: slug -> provider_id, derived from STATIONS
+_SLUG_TO_PID: dict[str, str] = {meta["slug"]: pid for pid, meta in STATIONS.items()}
+
+
+def slug_to_provider_id(slug: str) -> str:
+    """Return provider_id for a BBC slug using STATIONS as the source of truth."""
+    return _SLUG_TO_PID.get(slug, slug)
+
+
+def rebuild_slug_index() -> None:
+    """Recompute the slug->provider_id index after STATIONS changes."""
+    _SLUG_TO_PID.clear()
+    _SLUG_TO_PID.update({meta["slug"]: pid for pid, meta in STATIONS.items()})

@@ -14,6 +14,8 @@ from typing import Any
 
 import aiohttp
 
+from .stations import slug_to_provider_id
+
 BBC_STATIONS_URL = "https://www.bbc.co.uk/sounds/stations"
 
 # Exceptions where `.isml` is not simply f"{slug}.isml".
@@ -46,26 +48,6 @@ def slug_to_isml(slug: str) -> str:
         The `.isml` filename for the live HLS presentation.
     """
     return ISML_EXCEPTIONS.get(slug, f"{slug}.isml")
-
-
-def slug_to_provider_id(slug: str) -> str:
-    """Map a BBC slug to the provider's `item_id` scheme.
-
-    Args:
-        slug: BBC slug (e.g. "bbc_radio_one").
-
-    Returns:
-        Provider item id (e.g. "bbc_radio_1"). Falls back to slug if unknown.
-    """
-    mapping = {
-        "bbc_radio_one": "bbc_radio_1",
-        "bbc_radio_two": "bbc_radio_2",
-        "bbc_radio_three": "bbc_radio_3",
-        "bbc_radio_four": "bbc_radio_4",
-        "bbc_radio_5live": "bbc_radio_5live",
-        "bbc_6music": "bbc_6music",
-    }
-    return mapping.get(slug, slug)
 
 
 def _extract_section(html: str, section_id: str) -> str:
