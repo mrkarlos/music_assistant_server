@@ -58,6 +58,21 @@ BBC_STATIONS_URL = "https://www.bbc.co.uk/sounds/stations"
 ROOT_NATIONAL = "bbc:national"
 ROOT_LOCAL = "bbc:local"
 
+CONF_USER_AGENT = "user_agent"
+CONF_HTTP_HEADERS = "http_headers"
+CONF_RW_TIMEOUT_MS = "rw_timeout_ms"
+CONF_MAX_RELOAD = "max_reload"
+CONF_PROBESIZE_KB = "probesize_kb"
+CONF_ANALYZE_MS = "analyze_ms"
+CONF_START_AT_LAST = "start_at_last_segment"
+
+DEFAULT_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/127.0.0.0 Safari/537.36"
+)
+
+
 # Known exceptions where .isml != slug + ".isml"
 ISML_EXCEPTIONS = {
     "bbc_radio_four": "bbc_radio_fourfm.isml",  # Radio 4 main feed
@@ -134,6 +149,56 @@ async def get_config_entries(
             default_value=[],
             required=False,
             hidden=True,
+        ),
+        # ConfigEntry(
+        #     key=CONF_USER_AGENT,
+        #     type=ConfigEntryType.STRING,
+        #     label="HTTP User-Agent",
+        #     default_value=DEFAULT_UA,
+        #     required=True,
+        # ),
+        # ConfigEntry(
+        #     key=CONF_HTTP_HEADERS,
+        #     type=ConfigEntryType.STRING,
+        #     label="Extra HTTP headers",
+        #     description="One per line (e.g. 'Origin: …')",
+        #     default_value="Origin: https://www.bbc.co.uk\nReferer: https://www.bbc.co.uk\nConnection: keep-alive",  # noqa: E501
+        #     required=False,
+        # ),
+        ConfigEntry(
+            key=CONF_RW_TIMEOUT_MS,
+            type=ConfigEntryType.INTEGER,
+            label="Read/Write timeout (ms)",
+            default_value=15000,
+            required=True,
+        ),
+        ConfigEntry(
+            key=CONF_MAX_RELOAD,
+            type=ConfigEntryType.INTEGER,
+            label="Max playlist reloads",
+            default_value=1000,
+            required=True,
+        ),
+        ConfigEntry(
+            key=CONF_PROBESIZE_KB,
+            type=ConfigEntryType.INTEGER,
+            label="Probe size (KB)",
+            default_value=64,
+            required=True,
+        ),
+        ConfigEntry(
+            key=CONF_ANALYZE_MS,
+            type=ConfigEntryType.INTEGER,
+            label="Analyze duration (ms)",
+            default_value=100,
+            required=True,
+        ),
+        ConfigEntry(
+            key=CONF_START_AT_LAST,
+            type=ConfigEntryType.BOOLEAN,
+            label="Start at latest segment",
+            default_value=True,
+            required=True,
         ),
     )
 
@@ -329,7 +394,29 @@ class UkBbcRadioStationsProvider(MusicProvider):
         # 2) Convert to stable (non-token) UK no-rewind URL at preferred bitrate
         stable_url = self._to_static_url(variant_url, station["isml"], self.preferred_bitrate)
 
-        return StreamDetails(
+        # ua = self.config.get_value(CONF_USER_AGENT)
+        # hdrs_lines = (self.config.get_value(CONF_HTTP_HEADERS) or "").strip().splitlines()
+        # hdrs = "".join(f"{line.rstrip()}\r\n" for line in hdrs_lines if line.strip())
+        # rw_timeout_us = str(int(self.config.get_value(CONF_RW_TIMEOUT_MS)) * 1000)
+        # max_reload = str(int(self.config.get_value(CONF_MAX_RELOAD)))
+        # probesize = f"{int(self.config.get_value(CONF_PROBESIZE_KB))!s}k"
+        # analyze = str(int(self.config.get_value(CONF_ANALYZE_MS)))
+        # start_last = bool(self.config.get_value(CONF_START_AT_LAST))
+
+        # ua = cast(str, self.config.get_value(CONF_USER_AGENT) or DEFAULT_UA)
+        # headers_raw = cast(str, self.config.get_value(CONF_HTTP_HEADERS) or "")
+        rw_timeout_ms = cast("int", self.config.get_value(CONF_RW_TIMEOUT_MS) or 15_000)
+        max_reload = cast("int", self.config.get_value(CONF_MAX_RELOAD) or 1_000)
+        probesize_kb = cast("int", self.config.get_value(CONF_PROBESIZE_KB) or 64)
+        analyze = cast("int", self.config.get_value(CONF_ANALYZE_MS) or 100)
+        start_last = cast("bool", self.config.get_value(CONF_START_AT_LAST) or True)
+
+        # Light touch formatting
+        rw_timeout_us = f"{rw_timeout_ms * 1000}"
+        probesize = f"{probesize_kb}k"
+        # headers = "".join(f"{ln.rstrip()}\r\n" for ln in headers_raw.splitlines() if ln.strip())
+
+        sd = StreamDetails(
             item_id=item_id,
             provider=self.lookup_key,
             audio_format=AudioFormat(
@@ -343,6 +430,41 @@ class UkBbcRadioStationsProvider(MusicProvider):
             can_seek=False,
             duration=0,
         )
+        # Harden BBC HLS input
+        sd.extra_input_args = [
+            # "-user_agent", ua,
+            "-user_agent",
+            DEFAULT_UA,
+            # "-headers", hdrs,
+            "-headers",
+            "Origin: https://www.bbc.co.uk\r\nReferer: https://www.bbc.co.uk/\r\nConnection: keep-alive\r\n",  # noqa: E501
+            "-rw_timeout",
+            rw_timeout_us,
+            "-seekable",
+            "0",
+            "-http_persistent",
+            "1",
+            "-protocol_whitelist",
+            "file,http,https,tcp,tls,crypto",
+            "-max_reload",
+            str(max_reload),
+            "-fflags",
+            "+nobuffer+genpts+discardcorrupt",
+            "-flags",
+            "low_delay",
+            "-max_interleave_delta",
+            "0",
+            "-probesize",
+            probesize,
+            "-analyzeduration",
+            str(analyze),
+            "-sn",
+            "-dn",
+        ]
+        if start_last:
+            sd.extra_input_args += ["-live_start_index", "-1"]
+
+        return sd
 
     async def on_streamed(self, streamdetails: StreamDetails) -> None:
         """Call when a stream finished playing."""
